@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DMG / Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0b;
+    --surface: #111113;
+    --surface2: #18181c;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.12);
+    --text: #f0ede8;
+    --muted: #6b6b70;
+    --accent-audio: #1D9E75;
+    --accent-content: #7F77DD;
+    --accent-market: #EF9F27;
+    --accent-video: #378ADD;
+    --accent-ml: #D4537E;
+    --live: #1D9E75;
+    --pending: #EF9F27;
+    --local: #888780;
+    --font-display: 'Syne', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-display);
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  .scanline {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px 60px; }
+
+  header {
+    padding: 40px 0 32px;
+    border-bottom: 0.5px solid var(--border);
+    margin-bottom: 48px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .header-left {}
+
+  .logo {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    font-size: clamp(28px, 5vw, 44px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--text);
+  }
+
+  h1 span {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .header-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+    line-height: 1.8;
+  }
+
+  .header-meta strong {
+    color: var(--accent-audio);
+    font-weight: 500;
+  }
+
+  .section {
+    margin-bottom: 52px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .section-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .section-line {
+    flex: 1;
+    height: 0.5px;
+    background: var(--border);
+  }
+
+  .section-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot-audio { background: var(--accent-audio); }
+  .dot-content { background: var(--accent-content); }
+  .dot-market { background: var(--accent-market); }
+  .dot-video { background: var(--accent-video); }
+  .dot-ml { background: var(--accent-ml); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+
+  .grid-single { grid-template-columns: 1fr; max-width: 640px; }
+
+  .card {
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: 12px;
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transition: border-color 0.15s, background 0.15s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 12px 12px 0 0;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .card:hover { border-color: var(--border2); background: var(--surface2); }
+  .card:hover::before { opacity: 1; }
+
+  .card-audio::before { background: var(--accent-audio); }
+  .card-content::before { background: var(--accent-content); }
+  .card-market::before { background: var(--accent-market); }
+  .card-video::before { background: var(--accent-video); }
+  .card-ml::before { background: var(--accent-ml); }
+
+  .card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .card-name {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    line-height: 1.2;
+  }
+
+  .card-sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 3px;
+    letter-spacing: 0.05em;
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+    padding: 4px 8px;
+    border-radius: 20px;
+    border: 0.5px solid;
+  }
+
+  .status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+  }
+
+  .status-live {
+    color: var(--live);
+    border-color: rgba(29,158,117,0.25);
+    background: rgba(29,158,117,0.08);
+  }
+  .status-live .status-dot { background: var(--live); box-shadow: 0 0 4px var(--live); }
+
+  .status-pending {
+    color: var(--pending);
+    border-color: rgba(239,159,39,0.25);
+    background: rgba(239,159,39,0.08);
+  }
+  .status-pending .status-dot { background: var(--pending); }
+
+  .status-local {
+    color: var(--local);
+    border-color: rgba(136,135,128,0.2);
+    background: rgba(136,135,128,0.06);
+  }
+  .status-local .status-dot { background: var(--local); }
+
+  .card-desc {
+    font-size: 13px;
+    color: rgba(240,237,232,0.6);
+    line-height: 1.6;
+  }
+
+  .card-stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    border: 0.5px solid var(--border);
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  .btn-primary {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    padding: 9px 16px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: opacity 0.15s, transform 0.1s;
+    text-transform: uppercase;
+  }
+
+  .btn-primary:hover { opacity: 0.85; transform: translateY(-1px); }
+  .btn-primary:active { transform: scale(0.97); }
+
+  .btn-audio { background: var(--accent-audio); color: #04342C; }
+  .btn-content { background: var(--accent-content); color: #EEEDFE; }
+  .btn-market { background: var(--accent-market); color: #412402; }
+  .btn-video { background: var(--accent-video); color: #042C53; }
+  .btn-ml { background: var(--accent-ml); color: #4B1528; }
+
+  .btn-ghost {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 9px 14px;
+    border-radius: 6px;
+    border: 0.5px solid var(--border2);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    text-decoration: none;
+    transition: border-color 0.15s, color 0.15s;
+    text-transform: uppercase;
+  }
+
+  .btn-ghost:hover { border-color: rgba(255,255,255,0.3); color: var(--text); }
+
+  .disabled-note {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    margin-top: 2px;
+  }
+
+  footer {
+    border-top: 0.5px solid var(--border);
+    padding-top: 24px;
+    margin-top: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  footer p {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .status-live .status-dot { animation: pulse 2s ease-in-out infinite; }
+
+  @media (max-width: 600px) {
+    .wrap { padding: 0 16px 40px; }
+    header { padding: 24px 0 20px; margin-bottom: 32px; }
+    .header-meta { text-align: left; }
+    .grid { grid-template-columns: 1fr; }
+    h1 { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+<div class="wrap">
+
+  <header>
+    <div class="header-left">
+      <p class="logo">DMG / Workspace &mdash; v1.0</p>
+      <h1>Command <span>Center</span></h1>
+    </div>
+    <div class="header-meta">
+      <strong>1 live</strong> &nbsp;&middot;&nbsp; 4 pending deploy &nbsp;&middot;&nbsp; 1 local<br>
+      All services &rarr; Render<br>
+      github.com/Dmgivens85
+    </div>
+  </header>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-dot dot-audio"></span>
+      <span class="section-label">Audio post-production</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="grid">
+
+      <div class="card card-audio">
+        <div class="card-top">
+          <div>
+            <div class="card-name">CastCopy</div>
+            <div class="card-sub">castcopy.onrender.com</div>
+          </div>
+          <div class="status status-live">
+            <div class="status-dot"></div>live
+          </div>
+        </div>
+        <p class="card-desc">Podcast post-production assistant. Upload rough mixes for dialogue diagnostics, generate show notes from transcripts, and export DAW-ready marker files for Pro Tools and SoundFlow.</p>
+        <div class="card-stack">
+          <span class="tag">FastAPI</span>
+          <span class="tag">Jinja2</span>
+          <span class="tag">ffmpeg</span>
+          <span class="tag">Docker</span>
+        </div>
+        <div class="card-actions">
+          <a href="https://castcopy.onrender.com" target="_blank" class="btn-primary btn-audio">Open CastCopy</a>
+          <a href="https://github.com/Dmgivens85/castcopy" target="_blank" class="btn-ghost">GitHub</a>
+        </div>
+      </div>
+
+      <div class="card card-audio">
+        <div class="card-top">
+          <div>
+            <div class="card-name">Audio Tools</div>
+            <div class="card-sub">audio-tools.onrender.com &mdash; pending</div>
+          </div>
+          <div class="status status-pending">
+            <div class="status-dot"></div>pending
+          </div>
+        </div>
+        <p class="card-desc">Lightweight toolkit for sorting, auditing, and batch-processing audio files. Three FastAPI endpoints: organize by format, generate CSV inventory, summarize format distribution.</p>
+        <div class="card-stack">
+          <span class="tag">FastAPI</span>
+          <span class="tag">Python</span>
+          <span class="tag">stdlib</span>
+        </div>
+        <div class="card-actions">
+          <a href="https://audio-tools.onrender.com" target="_blank" class="btn-primary btn-audio">Open Audio Tools</a>
+          <a href="https://github.com/Dmgivens85/audio-tools" target="_blank" class="btn-ghost">GitHub</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-dot dot-content"></span>
+      <span class="section-label">Content creation</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="grid grid-single">
+
+      <div class="card card-content">
+        <div class="card-top">
+          <div>
+            <div class="card-name">Faceless &mdash; SceneSound OS</div>
+            <div class="card-sub">faceless.onrender.com &mdash; pending</div>
+          </div>
+          <div class="status status-pending">
+            <div class="status-dot"></div>pending
+          </div>
+        </div>
+        <p class="card-desc">Internal content OS for planning faceless short-form video about film and TV scenes where sound drives emotional impact. Scene Finder, Hook Writer, Breakdown Builder, Idea Vault — built for TikTok, Reels, and Shorts workflows.</p>
+        <div class="card-stack">
+          <span class="tag">FastAPI</span>
+          <span class="tag">Jinja2</span>
+          <span class="tag">SQLite</span>
+          <span class="tag">JavaScript</span>
+        </div>
+        <div class="card-actions">
+          <a href="https://faceless.onrender.com" target="_blank" class="btn-primary btn-content">Open Faceless</a>
+          <a href="https://github.com/Dmgivens85/Faceless" target="_blank" class="btn-ghost">GitHub</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-dot dot-market"></span>
+      <span class="section-label">Market intelligence</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="grid grid-single">
+
+      <div class="card card-market">
+        <div class="card-top">
+          <div>
+            <div class="card-name">Kalshi Signal Desk</div>
+            <div class="card-sub">kalshi-signal-desk.onrender.com &mdash; pending</div>
+          </div>
+          <div class="status status-pending">
+            <div class="status-dot"></div>pending
+          </div>
+        </div>
+        <p class="card-desc">Cloud-native Kalshi market intelligence and trade-assist platform. Monitors prediction markets, enriches signals with external data, scores high-confidence alerts, and delivers Pushover notifications. Strict guardrails: paper mode by default, live execution requires 3 explicit gates.</p>
+        <div class="card-stack">
+          <span class="tag">FastAPI</span>
+          <span class="tag">TypeScript</span>
+          <span class="tag">Turborepo</span>
+          <span class="tag">Docker Compose</span>
+          <span class="tag">Pushover</span>
+        </div>
+        <div class="card-actions">
+          <a href="https://kalshi-signal-desk.onrender.com/web" target="_blank" class="btn-primary btn-market">Open Signal Desk</a>
+          <a href="https://kalshi-signal-desk.onrender.com/api/docs" target="_blank" class="btn-ghost">API Docs</a>
+          <a href="https://github.com/Dmgivens85/kalshi-signal-desk" target="_blank" class="btn-ghost">GitHub</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-dot dot-video"></span>
+      <span class="section-label">Video post-production</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="grid grid-single">
+
+      <div class="card card-video">
+        <div class="card-top">
+          <div>
+            <div class="card-name">Video Editing</div>
+            <div class="card-sub">github.com/Dmgivens85/Video_Editing</div>
+          </div>
+          <div class="status status-pending">
+            <div class="status-dot"></div>pending
+          </div>
+        </div>
+        <p class="card-desc">Central repo for Premiere Pro-adjacent tooling, QC workflows, reusable graphics templates, and project builds. Talking-head QC scripts, HTML/CSS overlay graphics, client project folders, and coursework organized by assignment.</p>
+        <div class="card-stack">
+          <span class="tag">Python</span>
+          <span class="tag">HTML/CSS</span>
+          <span class="tag">Premiere Pro</span>
+          <span class="tag">mixed assets</span>
+        </div>
+        <div class="card-actions">
+          <a href="https://github.com/Dmgivens85/Video_Editing" target="_blank" class="btn-primary btn-video">Browse Tools &amp; Assets</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-dot dot-ml"></span>
+      <span class="section-label">ML / Research</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="grid grid-single">
+
+      <div class="card card-ml">
+        <div class="card-top">
+          <div>
+            <div class="card-name">Boom Challenge</div>
+            <div class="card-sub">CLI / ML pipeline &mdash; local only</div>
+          </div>
+          <div class="status status-local">
+            <div class="status-dot"></div>local
+          </div>
+        </div>
+        <p class="card-desc">Physics-informed ML pipeline for the Boom: Trajectory Unknown Challenge. Trains a forward-prediction model on ballistic fragmentation data and generates 20 inverse-design candidates using physics-proxy features plus a neural residual correction model.</p>
+        <div class="card-stack">
+          <span class="tag">PyTorch</span>
+          <span class="tag">pandas</span>
+          <span class="tag">numpy</span>
+          <span class="tag">Python</span>
+        </div>
+        <div class="card-actions">
+          <a href="https://github.com/Dmgivens85/boom_challenge" target="_blank" class="btn-primary btn-ml">View Pipeline Docs</a>
+          <a href="https://github.com/Dmgivens85/Boom-Challenge-Datasets" target="_blank" class="btn-ghost">Datasets</a>
+        </div>
+        <p class="disabled-note">No web deploy &mdash; CLI/ML pipeline only</p>
+      </div>
+
+    </div>
+  </div>
+
+  <footer>
+    <p>&copy; 2026 DMGivens85 &mdash; Personal workspace. Not a portfolio.</p>
+    <div class="legend">
+      <div class="legend-item"><div class="status-dot" style="background:var(--live);width:5px;height:5px;border-radius:50%;animation:pulse 2s ease-in-out infinite;"></div>live</div>
+      <div class="legend-item"><div class="status-dot" style="background:var(--pending);width:5px;height:5px;border-radius:50%;"></div>pending deploy</div>
+      <div class="legend-item"><div class="status-dot" style="background:var(--local);width:5px;height:5px;border-radius:50%;"></div>local only</div>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>
