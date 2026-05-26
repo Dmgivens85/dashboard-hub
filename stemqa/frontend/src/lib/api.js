@@ -1,5 +1,8 @@
+const PRODUCTION_API_BASE_URL = 'https://dashboard-hub-stemqa-backend.onrender.com'
+
 function buildUrl(path) {
-  const prefix = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+  const configuredPrefix = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+  const prefix = configuredPrefix || (import.meta.env.DEV ? '' : PRODUCTION_API_BASE_URL)
   return `${prefix}${path}`
 }
 
