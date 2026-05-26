@@ -2,7 +2,7 @@
   "name": "frontend",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://dmgivens85.github.io/dashboard-hub/stemqa",
+  "homepage": "https://dmgivens85.github.io/StemQA",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "predeploy": "npm run build:pages",
-    "deploy": "gh-pages -d dist --dest stemqa"
+    "deploy": "gh-pages -d dist --repo https://github.com/Dmgivens85/Dmgivens85.github.io.git -b main --dest StemQA --add"
   },
   "dependencies": {
     "@fontsource/source-sans-pro": "^5.2.5",

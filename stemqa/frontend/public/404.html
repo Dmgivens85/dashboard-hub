@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StemQA Redirect</title>
+    <script>
+      (function () {
+        var parts = window.location.pathname.split('/').filter(Boolean)
+        var stemqaIndex = parts.findIndex(function (segment) {
+          return segment.toLowerCase() === 'stemqa'
+        })
+        var basePath = stemqaIndex >= 0 ? '/' + parts.slice(0, stemqaIndex + 1).join('/') : '/StemQA'
+        var routeSegments = stemqaIndex >= 0 ? parts.slice(stemqaIndex + 1) : []
+        var routePath = routeSegments.length ? '/' + routeSegments.join('/') : '/ingest'
+        var target = window.location.origin + basePath + '/#' + routePath + window.location.search + window.location.hash
+        window.location.replace(target)
+      })()
+    </script>
+  </head>
+  <body></body>
+</html>
