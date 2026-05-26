@@ -14,5 +14,5 @@ services:
         value: https://dmgivens85.github.io,http://127.0.0.1:4173,http://localhost:4173
       - key: TORCH_HOME
         value: /opt/render/project/src/stemqa/backend/.torch
-      - key: STEMQA_DEMUCS_SEGMENT
-        value: "10"
+      - key: STEMQA_DISABLE_SEPARATION
+        value: "1"

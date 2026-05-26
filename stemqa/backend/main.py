@@ -33,6 +33,9 @@ DEFAULT_ALLOWED_ORIGINS = (
     "http://127.0.0.1:4173",
     "http://localhost:4173",
 )
+LIVE_SEPARATION_DISABLED_MESSAGE = (
+    "Live separation is not available on this instance. Run the backend locally for full separation support."
+)
 
 for directory in (UPLOADS_DIR, JOBS_DIR, RESIDUALS_DIR, DEFAULT_EXPORT_DIR):
     directory.mkdir(parents=True, exist_ok=True)
@@ -56,6 +59,11 @@ def _allowed_origins() -> list[str]:
     if configured.strip():
         return [origin.strip() for origin in configured.split(",") if origin.strip()]
     return list(DEFAULT_ALLOWED_ORIGINS)
+
+
+def _live_separation_disabled() -> bool:
+    configured = os.getenv("STEMQA_DISABLE_SEPARATION", "")
+    return configured.strip().lower() in {"1", "true", "yes", "on"}
 
 
 app.add_middleware(
@@ -360,6 +368,9 @@ async def ingest_audio(
 
 @app.post("/api/separate")
 async def separate_audio(request: SeparationRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    if _live_separation_disabled():
+        raise HTTPException(status_code=503, detail=LIVE_SEPARATION_DISABLED_MESSAGE)
+
     try:
         source_path = Path(request.file_path).expanduser().resolve()
     except Exception as exc:  # noqa: BLE001

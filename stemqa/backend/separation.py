@@ -11,7 +11,6 @@ import soundfile as sf
 
 HTDEMUCS_FT = "htdemucs_ft"
 MDX_EXTRA = "mdx_extra"
-DEFAULT_SEGMENT_SECONDS = 10.0
 
 _MODEL_ALIASES = {
     "htdemucs ft": HTDEMUCS_FT,
@@ -81,7 +80,7 @@ def _collect_demucs_outputs(output_root: Path, model_name: str, source: Path) ->
 def _segment_seconds() -> float | None:
     configured = os.getenv("STEMQA_DEMUCS_SEGMENT")
     if configured is None or not configured.strip():
-        return DEFAULT_SEGMENT_SECONDS
+        return None
     try:
         segment = float(configured)
     except ValueError as exc:
