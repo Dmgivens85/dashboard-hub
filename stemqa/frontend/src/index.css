@@ -1,0 +1,104 @@
+@import 'tailwindcss';
+
+:root {
+  --pink: #E82076;
+  --pink-light: #fce8f1;
+  --pink-border: #f3d0e2;
+  --amber: #e8950a;
+  --green: #2ab76e;
+  --red: #c0392b;
+  --gray: #9B9B9B;
+  --gray-light: #f7f7f7;
+  --gray-border: #e8e8e8;
+  --text: #1a1a1a;
+  --text-sub: #6b6b6b;
+  font-family: 'Source Sans Pro', 'Source Sans 3', sans-serif;
+  color: var(--text);
+  background: #ffffff;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+@keyframes upload-progress-slide {
+  0% {
+    transform: translateX(-100%);
+    width: 38%;
+  }
+
+  50% {
+    transform: translateX(52%);
+    width: 48%;
+  }
+
+  100% {
+    transform: translateX(220%);
+    width: 38%;
+  }
+}
+
+@keyframes slide-up-panel {
+  0% {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@layer base {
+  ::selection {
+    background: color-mix(in srgb, var(--pink) 18%, white);
+  }
+}
+
+@layer components {
+  .panel-shell {
+    @apply rounded-[22px] border border-[var(--gray-border)] bg-white px-5 py-5 shadow-[0_18px_32px_rgba(0,0,0,0.04)];
+  }
+
+  .pill-button {
+    @apply inline-flex items-center justify-center rounded-[20px] bg-[var(--pink)] px-5 py-3 text-sm font-semibold text-white shadow-[0_16px_28px_rgba(232,32,118,0.22)] transition hover:translate-y-[-1px] hover:shadow-[0_18px_30px_rgba(232,32,118,0.28)] disabled:cursor-not-allowed disabled:bg-[var(--pink-border)] disabled:text-white/80 disabled:shadow-none;
+  }
+
+  .ghost-button {
+    @apply inline-flex items-center justify-center rounded-[20px] border border-[var(--gray-border)] bg-white px-5 py-3 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--pink-border)] hover:bg-[var(--pink-light)] disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .input-shell {
+    @apply w-full rounded-[6px] border border-[var(--gray-border)] bg-white px-3 py-2.5 text-sm text-[var(--text)] outline-none transition placeholder:text-[var(--text-sub)] focus:border-[var(--pink)] focus:ring-2 focus:ring-[rgba(232,32,118,0.14)];
+  }
+
+  .table-shell {
+    @apply overflow-hidden rounded-[18px] border border-[var(--gray-border)];
+  }
+
+  .upload-progress-indeterminate {
+    animation: upload-progress-slide 1.25s ease-in-out infinite;
+  }
+
+  .slide-up-panel {
+    animation: slide-up-panel 240ms ease-out;
+  }
+}
