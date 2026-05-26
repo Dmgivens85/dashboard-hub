@@ -6,6 +6,7 @@ import {
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import IngestScreen from './components/IngestScreen.jsx'
 import ModelScreen from './components/ModelScreen.jsx'
+import SeparationProgressPanel from './components/SeparationProgressPanel.jsx'
 import Workbench from './components/Workbench.jsx'
 import {
   buildMediaUrl,
@@ -20,14 +21,76 @@ import { buildPreviewNames } from './lib/naming.js'
 
 const DRAFT_KEY = 'stemqa-draft-v1'
 const STEM_COLORS = ['#E82076', '#2AB76E', '#4F8FF7', '#E8950A', '#00A6A6', '#C0392B', '#9B9B9B']
+const SOURCE_TYPE_OPTIONS = [
+  'Orchestral/Classical',
+  'Pop/Rock/Vocal',
+  'Jazz/Acoustic',
+  'Other',
+]
+const STANDARD_DEMUCS_OUTPUTS = ['Vocals', 'Drums', 'Bass', 'Other']
+const ENSEMBLE_EXTRA_OUTPUTS = ['Piano', 'Guitar']
 
 function isActiveFlag(flag) {
   return (flag?.state ?? 'active') === 'active'
 }
 
+function dateStamp(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('')
+}
+
+function compactSessionPart(value, fallback) {
+  const cleaned = String(value ?? '').replace(/[^a-z0-9]/gi, '')
+  return cleaned || fallback
+}
+
+function buildSessionNameValue(composer, title) {
+  return `${compactSessionPart(composer, 'StemQA')}_${compactSessionPart(title, 'Session')}_${dateStamp()}`
+}
+
+function normalizeSourceType(sourceType) {
+  if (['Orchestra', 'Chamber', 'Orchestral/Classical'].includes(sourceType)) {
+    return 'Orchestral/Classical'
+  }
+  if (['Pop/Rock/Vocal', 'Jazz/Acoustic', 'Other'].includes(sourceType)) {
+    return sourceType
+  }
+  return sourceType || ''
+}
+
+function recommendedModelForSourceType(sourceType) {
+  const normalizedSourceType = normalizeSourceType(sourceType)
+  if (normalizedSourceType === 'Orchestral/Classical') {
+    return 'HTDemucs FT'
+  }
+  if (normalizedSourceType === 'Pop/Rock/Vocal') {
+    return 'Ensemble'
+  }
+  return ''
+}
+
+function estimateRuntimeForModel(duration, modelLabel, overlap, shifts) {
+  const selectedModel = MODEL_OPTIONS.find((option) => option.label === modelLabel) ?? MODEL_OPTIONS[0]
+  const overlapFactor = 1 + (overlap - 8) * 0.035
+  const shiftFactor = shifts === 0 ? 0.9 : shifts === 2 ? 1 : 1.18
+  return Math.max(30, duration * selectedModel.runtimeFactor * overlapFactor * shiftFactor)
+}
+
+function isScoreDetected(score) {
+  return score?.status === 'parsed'
+}
+
+function isSelectableSourceType(sourceType) {
+  return SOURCE_TYPE_OPTIONS.includes(sourceType)
+}
+
 function createStemRow(stem = {}, index = 0) {
   const sourceBadge = stem.source_badge ?? stem.sourceBadge ?? 'manual'
   const originalInstrument = stem.instrument ?? stem.name ?? `Stem ${index + 1}`
+  const hasExplicitConfidence = Object.prototype.hasOwnProperty.call(stem, 'detection_confidence')
 
   return {
     id: stem.id ?? `stem-${crypto.randomUUID()}`,
@@ -35,13 +98,48 @@ function createStemRow(stem = {}, index = 0) {
     originalInstrument,
     origin: sourceBadge,
     source_badge: sourceBadge,
-    detection_confidence:
-      typeof stem.detection_confidence === 'number' ? stem.detection_confidence : sourceBadge === 'manual' ? 0.74 : 1,
+    detection_confidence: hasExplicitConfidence ? stem.detection_confidence : sourceBadge === 'manual' ? 0.74 : 1,
     stem_type: stem.stem_type ?? 'IsolatedStem',
     color: stem.color ?? STEM_COLORS[index % STEM_COLORS.length],
     conflictAcknowledged: sourceBadge !== 'conflict',
     deleted: false,
   }
+}
+
+function buildExpectedStemRows(sourceType, modelLabel, currentStems = []) {
+  if (!isSelectableSourceType(sourceType)) {
+    return []
+  }
+
+  const labels = [...STANDARD_DEMUCS_OUTPUTS]
+  if (modelLabel === 'Ensemble') {
+    labels.push(...ENSEMBLE_EXTRA_OUTPUTS)
+  }
+
+  const defaultRows = labels.map((label, index) => {
+    const existingStem = currentStems.find(
+      (stem) => stem.source_badge === 'expected' && stem.originalInstrument === label,
+    )
+    return createStemRow(
+      {
+        ...existingStem,
+        id: existingStem?.id ?? `expected-${label.toLowerCase()}`,
+        instrument: existingStem?.instrument ?? label,
+        originalInstrument: label,
+        source_badge: 'expected',
+        detection_confidence: null,
+        stem_type: existingStem?.stem_type ?? 'IsolatedStem',
+        color: existingStem?.color ?? STEM_COLORS[index % STEM_COLORS.length],
+      },
+      index,
+    )
+  })
+
+  const supplementalRows = currentStems
+    .filter((stem) => stem.source_badge !== 'expected')
+    .map((stem, index) => createStemRow(stem, defaultRows.length + index))
+
+  return [...defaultRows, ...supplementalRows]
 }
 
 function createInitialState() {
@@ -54,15 +152,16 @@ function createInitialState() {
     audio: null,
     checks: [],
     score: null,
-    sourceType: 'Unknown',
-    stems: [createStemRow({}, 0)],
+    sourceType: '',
+    stems: [],
     warningsAcknowledged: false,
     sessionMeta: {
       catalog_id: '',
       composer: '',
       title: '',
       version: 1,
-      session_name: 'stemqa-session',
+      session_name: buildSessionNameValue('', ''),
+      session_name_customized: false,
     },
     model: {
       selected: 'HTDemucs FT',
@@ -78,6 +177,11 @@ function createInitialState() {
       stems: [],
       flags: [],
       error: '',
+      error_detail: '',
+      logs_url: '',
+      log_tail: [],
+      model_name: '',
+      started_at: '',
     },
     nullTest: {
       status: 'idle',
@@ -96,6 +200,7 @@ function loadDraft() {
 
     const parsed = JSON.parse(rawDraft)
     const initialState = createInitialState()
+    const draftSessionMeta = parsed.sessionMeta ?? {}
     return {
       ...initialState,
       ...parsed,
@@ -116,7 +221,9 @@ function loadDraft() {
       },
       sessionMeta: {
         ...initialState.sessionMeta,
-        ...parsed.sessionMeta,
+        ...draftSessionMeta,
+        session_name: draftSessionMeta.session_name || initialState.sessionMeta.session_name,
+        session_name_customized: draftSessionMeta.session_name_customized ?? false,
       },
     }
   } catch {
@@ -139,6 +246,7 @@ function App() {
   const [ui, setUi] = useState({
     ingestSubmitting: false,
     ingestError: '',
+    ingestProgressState: 'idle',
     separationSubmitting: false,
     exportSubmitting: false,
     separationError: '',
@@ -146,6 +254,7 @@ function App() {
     draftNotice: '',
     nullTestOpen: false,
     nullTestSubmitting: false,
+    separationPanelOpen: false,
   })
 
   useEffect(
@@ -160,26 +269,34 @@ function App() {
   const activeStems = session.stems.filter((stem) => !stem.deleted)
   const selectedStems = activeStems.filter((stem) => session.model.selectedStemIds.includes(stem.id))
   const unresolvedFlags = session.separation.flags.filter((flag) => isActiveFlag(flag))
+  const hasScore = isScoreDetected(session.score)
   const hardReject = Boolean(session.audio?.hard_reject)
   const hasWarnings = Boolean(session.audio?.soft_flags?.length)
   const hasUnacknowledgedConflict = activeStems.some(
     (stem) => stem.source_badge === 'conflict' && !stem.conflictAcknowledged,
   )
+  const needsSourceTypeSelection = Boolean(session.sourcePath) && !hasScore && !isSelectableSourceType(session.sourceType)
   const canAdvanceToModel =
     Boolean(session.sourcePath) &&
+    !needsSourceTypeSelection &&
+    activeStems.length > 0 &&
     !hardReject &&
     !hasUnacknowledgedConflict &&
     (!hasWarnings || session.warningsAcknowledged)
 
   const ingestBlockingReason = !session.sourcePath
     ? 'Upload a source file to continue.'
-    : hardReject
-      ? 'Resolve the hard reject conditions before continuing.'
-      : hasUnacknowledgedConflict
-        ? 'Acknowledge all naming conflicts before continuing.'
-        : hasWarnings && !session.warningsAcknowledged
-          ? 'Acknowledge the ingest warnings to continue.'
-          : ''
+    : needsSourceTypeSelection
+      ? 'Choose a source type so StemQA can label the expected Demucs outputs.'
+      : activeStems.length === 0
+        ? 'Add or confirm at least one expected stem output before continuing.'
+        : hardReject
+          ? 'Resolve the hard reject conditions before continuing.'
+          : hasUnacknowledgedConflict
+            ? 'Acknowledge all naming conflicts before continuing.'
+            : hasWarnings && !session.warningsAcknowledged
+              ? 'Acknowledge the ingest warnings to continue.'
+              : ''
 
   const previewNames = buildPreviewNames({
     stems: activeStems,
@@ -189,38 +306,57 @@ function App() {
   })
 
   const applyIngestResponse = (response, sourcePreviewUrl, sourceFileName, scoreFileName) => {
-    const responseStems =
-      response.stems?.length > 0
-        ? response.stems.map((stem, index) => createStemRow(stem, index))
-        : activeStems.length > 0
-          ? activeStems
-          : [createStemRow({}, 0)]
-
     startTransition(() => {
       setSession((currentSession) => ({
-        ...currentSession,
-        sourcePath: response.file_path,
-        sourcePreviewUrl,
-        scorePath: response.score_path ?? '',
-        sourceFileName,
-        scoreFileName,
-        audio: response.audio,
-        checks: response.checks,
-        score: response.score,
-        sourceType: response.source_type,
-        stems: responseStems,
-        warningsAcknowledged: response.audio?.soft_flags?.length === 0,
-        model: {
-          ...currentSession.model,
-          selectedStemIds: responseStems.map((stem) => stem.id),
-        },
-        separation: createInitialState().separation,
-        nullTest: createInitialState().nullTest,
+        ...(() => {
+          const detectedScore = isScoreDetected(response.score)
+          const nextSourceType = detectedScore ? normalizeSourceType(response.source_type) : ''
+          const sourceTypeRecommendedModel = recommendedModelForSourceType(nextSourceType)
+          const responseStems = detectedScore
+            ? (response.stems ?? []).map((stem, index) => createStemRow(stem, index))
+            : []
+          const nextSessionMeta = currentSession.sessionMeta.session_name_customized
+            ? currentSession.sessionMeta
+            : {
+                ...currentSession.sessionMeta,
+                session_name: buildSessionNameValue(
+                  currentSession.sessionMeta.composer,
+                  currentSession.sessionMeta.title,
+                ),
+              }
+
+          return {
+            ...currentSession,
+            sourcePath: response.file_path,
+            sourcePreviewUrl,
+            scorePath: response.score_path ?? '',
+            sourceFileName,
+            scoreFileName,
+            audio: response.audio,
+            checks: response.checks,
+            score: response.score,
+            sourceType: nextSourceType,
+            stems: responseStems,
+            warningsAcknowledged: response.audio?.soft_flags?.length === 0,
+            sessionMeta: nextSessionMeta,
+            model: {
+              ...currentSession.model,
+              selected:
+                sourceTypeRecommendedModel === 'HTDemucs FT'
+                  ? sourceTypeRecommendedModel
+                  : currentSession.model.selected,
+              selectedStemIds: responseStems.map((stem) => stem.id),
+            },
+            separation: createInitialState().separation,
+            nullTest: createInitialState().nullTest,
+          }
+        })(),
       }))
       setUi((currentUi) => ({
         ...currentUi,
         ingestSubmitting: false,
         ingestError: '',
+        ingestProgressState: 'success',
         separationError: '',
         separationNotice: '',
       }))
@@ -240,6 +376,7 @@ function App() {
       ...currentUi,
       ingestSubmitting: true,
       ingestError: '',
+      ingestProgressState: 'loading',
       draftNotice: '',
     }))
 
@@ -251,6 +388,7 @@ function App() {
         ...currentUi,
         ingestSubmitting: false,
         ingestError: error.message,
+        ingestProgressState: 'error',
       }))
     }
   }
@@ -287,10 +425,32 @@ function App() {
   const handleMetaChange = (field, value) => {
     setSession((currentSession) => ({
       ...currentSession,
-      sessionMeta: {
-        ...currentSession.sessionMeta,
-        [field]: value,
-      },
+      sessionMeta:
+        field === 'session_name'
+          ? value.trim()
+            ? {
+                ...currentSession.sessionMeta,
+                session_name: value,
+                session_name_customized: true,
+              }
+            : {
+                ...currentSession.sessionMeta,
+                session_name: buildSessionNameValue(
+                  currentSession.sessionMeta.composer,
+                  currentSession.sessionMeta.title,
+                ),
+                session_name_customized: false,
+              }
+          : {
+              ...currentSession.sessionMeta,
+              [field]: value,
+              session_name: currentSession.sessionMeta.session_name_customized
+                ? currentSession.sessionMeta.session_name
+                : buildSessionNameValue(
+                    field === 'composer' ? value : currentSession.sessionMeta.composer,
+                    field === 'title' ? value : currentSession.sessionMeta.title,
+                  ),
+            },
     }))
   }
 
@@ -359,6 +519,26 @@ function App() {
     })
   }
 
+  const handleSourceTypeSelected = (sourceType) => {
+    setSession((currentSession) => {
+      const normalizedSourceType = normalizeSourceType(sourceType)
+      const recommendedModel = recommendedModelForSourceType(normalizedSourceType)
+      const nextModelSelected =
+        recommendedModel === 'HTDemucs FT' ? recommendedModel : currentSession.model.selected
+      const nextStems = buildExpectedStemRows(normalizedSourceType, nextModelSelected, currentSession.stems)
+      return {
+        ...currentSession,
+        sourceType: normalizedSourceType,
+        stems: nextStems,
+        model: {
+          ...currentSession.model,
+          selected: nextModelSelected,
+          selectedStemIds: nextStems.map((stem) => stem.id),
+        },
+      }
+    })
+  }
+
   const handleConflictAcknowledgement = (stemId) => {
     setSession((currentSession) => ({
       ...currentSession,
@@ -405,13 +585,29 @@ function App() {
   }
 
   const handleModelChange = (field, value) => {
-    setSession((currentSession) => ({
-      ...currentSession,
-      model: {
+    setSession((currentSession) => {
+      const nextModel = {
         ...currentSession.model,
         [field]: value,
-      },
-    }))
+      }
+
+      if (field === 'selected' && !isScoreDetected(currentSession.score) && isSelectableSourceType(currentSession.sourceType)) {
+        const nextStems = buildExpectedStemRows(currentSession.sourceType, value, currentSession.stems)
+        return {
+          ...currentSession,
+          stems: nextStems,
+          model: {
+            ...nextModel,
+            selectedStemIds: nextStems.map((stem) => stem.id),
+          },
+        }
+      }
+
+      return {
+        ...currentSession,
+        model: nextModel,
+      }
+    })
   }
 
   const handleStemSelectionToggle = (stemId) => {
@@ -456,6 +652,25 @@ function App() {
       separationSubmitting: true,
       separationError: '',
       separationNotice: '',
+      separationPanelOpen: true,
+    }))
+
+    setSession((currentSession) => ({
+      ...currentSession,
+      separation: {
+        ...currentSession.separation,
+        job_id: '',
+        status: 'starting',
+        progress: 0,
+        stems: [],
+        flags: [],
+        error: '',
+        error_detail: '',
+        logs_url: '',
+        log_tail: ['Preparing separation request…'],
+        model_name: currentSession.model.selected,
+        started_at: new Date().toISOString(),
+      },
     }))
 
     try {
@@ -483,6 +698,11 @@ function App() {
             stems: [],
             flags: [],
             error: '',
+            error_detail: '',
+            logs_url: response.logs_url ?? '',
+            log_tail: [`Job ${response.job_id} created. Awaiting worker activity…`],
+            model_name: currentSession.separation.model_name || currentSession.model.selected,
+            started_at: currentSession.separation.started_at || new Date().toISOString(),
           },
         }))
         setUi((currentUi) => ({
@@ -492,14 +712,26 @@ function App() {
           separationNotice: `Separation queued with ${formatModelLabel(session.model.selected)}.`,
         }))
       })
-
-      startTransition(() => navigate('/workbench'))
     } catch (error) {
-      setUi((currentUi) => ({
-        ...currentUi,
-        separationSubmitting: false,
-        separationError: error.message,
-      }))
+      startTransition(() => {
+        setSession((currentSession) => ({
+          ...currentSession,
+          separation: {
+            ...currentSession.separation,
+            status: 'failed',
+            progress: 1,
+            error: 'Separation failed.',
+            error_detail: error.message,
+            log_tail: [...(currentSession.separation.log_tail ?? []), error.message],
+          },
+        }))
+        setUi((currentUi) => ({
+          ...currentUi,
+          separationSubmitting: false,
+          separationError: error.message,
+          separationPanelOpen: true,
+        }))
+      })
     }
   }
 
@@ -527,6 +759,9 @@ function App() {
               flags: response.flags ?? currentSession.separation.flags,
               stems: response.stems ?? currentSession.separation.stems,
               error: response.error ?? '',
+              error_detail: response.error_detail ?? '',
+              logs_url: response.logs_url ?? '',
+              log_tail: response.log_tail ?? currentSession.separation.log_tail,
             },
           }))
         })
@@ -536,6 +771,9 @@ function App() {
           const activeFlagCount = nextFlags.filter((flag) => isActiveFlag(flag)).length
           setUi((currentUi) => ({
             ...currentUi,
+            separationSubmitting: false,
+            separationError: '',
+            separationPanelOpen: true,
             separationNotice:
               nextFlags.length > 0
                 ? `Separation complete. ${activeFlagCount} flag${activeFlagCount === 1 ? '' : 's'} require engineer acknowledgement before export unlocks.`
@@ -547,15 +785,34 @@ function App() {
         if (response.status === 'failed') {
           setUi((currentUi) => ({
             ...currentUi,
-            separationError: response.error ?? 'Separation failed.',
+            separationSubmitting: false,
+            separationError: response.error_detail ?? response.error ?? 'Separation failed.',
+            separationNotice: '',
+            separationPanelOpen: true,
           }))
           return
         }
       } catch (error) {
         if (!cancelled) {
+          startTransition(() => {
+            setSession((currentSession) => ({
+              ...currentSession,
+              separation: {
+                ...currentSession.separation,
+                status: 'failed',
+                progress: 1,
+                error: 'Separation failed.',
+                error_detail: error.message,
+                log_tail: [...(currentSession.separation.log_tail ?? []), error.message],
+              },
+            }))
+          })
           setUi((currentUi) => ({
             ...currentUi,
+            separationSubmitting: false,
             separationError: error.message,
+            separationNotice: '',
+            separationPanelOpen: true,
           }))
         }
       }
@@ -570,6 +827,28 @@ function App() {
       window.clearTimeout(timeoutId)
     }
   }, [session.separation.job_id, session.separation.status])
+
+  const handleGoToWorkbench = () => {
+    setUi((currentUi) => ({
+      ...currentUi,
+      separationPanelOpen: false,
+    }))
+    startTransition(() => navigate('/workbench'))
+  }
+
+  const handleTrySeparationAgain = () => {
+    setSession((currentSession) => ({
+      ...currentSession,
+      separation: createInitialState().separation,
+    }))
+    setUi((currentUi) => ({
+      ...currentUi,
+      separationPanelOpen: false,
+      separationSubmitting: false,
+      separationError: '',
+      separationNotice: '',
+    }))
+  }
 
   const handleRunNullTest = async () => {
     if (session.separation.stems.length === 0) {
@@ -757,6 +1036,12 @@ function App() {
       }
 
   const estimatedDurationSeconds = session.audio?.duration ?? 0
+  const estimatedSeparationRuntime = estimateRuntimeForModel(
+    estimatedDurationSeconds,
+    session.model.selected,
+    session.model.overlap,
+    session.model.shifts,
+  )
   const canExport = session.separation.status === 'complete' && unresolvedFlags.length === 0
   const exportLockedReason =
     session.separation.status !== 'complete'
@@ -781,6 +1066,8 @@ function App() {
               checks={session.checks}
               draftNotice={ui.draftNotice}
               error={ui.ingestError}
+              hasScore={hasScore}
+              ingestProgressState={ui.ingestProgressState}
               isSubmitting={ui.ingestSubmitting}
               namingPreview={previewNames}
               onAddStem={handleStemAdd}
@@ -790,13 +1077,16 @@ function App() {
               onProceed={handleProceedToModel}
               onSaveDraft={handleSaveDraft}
               onScoreSelected={handleScoreSelected}
+              onSourceTypeSelected={handleSourceTypeSelected}
               onStemChange={handleStemChange}
               onStemDelete={handleStemDelete}
               onWarningAcknowledged={handleWarningAcknowledgement}
               score={session.score}
               scoreFileName={session.scoreFileName}
               sessionMeta={session.sessionMeta}
+              showSourceTypePrompt={needsSourceTypeSelection}
               sourceFileName={session.sourceFileName}
+              sourceTypeOptions={SOURCE_TYPE_OPTIONS}
               sourceType={session.sourceType}
               stems={activeStems}
               warningsAcknowledged={session.warningsAcknowledged}
@@ -819,6 +1109,7 @@ function App() {
                 onModelChange={handleModelChange}
                 onRunSeparation={handleRunSeparation}
                 onStemToggle={handleStemSelectionToggle}
+                sourceType={session.sourceType}
                 stems={activeStems}
               />
             )
@@ -854,6 +1145,21 @@ function App() {
           }
         />
       </Routes>
+
+      <SeparationProgressPanel
+        errorDetail={session.separation.error_detail}
+        estimatedRuntimeSeconds={estimatedSeparationRuntime}
+        isOpen={ui.separationPanelOpen}
+        jobId={session.separation.job_id}
+        logTail={session.separation.log_tail}
+        logsUrl={session.separation.logs_url}
+        modelName={session.separation.model_name || session.model.selected}
+        onGoToWorkbench={handleGoToWorkbench}
+        onTryAgain={handleTrySeparationAgain}
+        progress={session.separation.progress}
+        startedAt={session.separation.started_at}
+        status={session.separation.status}
+      />
     </div>
   )
 }

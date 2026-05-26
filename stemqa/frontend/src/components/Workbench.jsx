@@ -51,6 +51,8 @@ function Workbench({
   const acknowledgedFlags = flags.filter((flag) => flag.state === 'acknowledged')
   const escalatedFlags = flags.filter((flag) => flag.state === 'escalated')
   const manualRepairFlags = flags.filter((flag) => flag.state === 'manual_repair')
+  const errorDetail = separation.error_detail || separation.errorDetail || separation.error || ''
+  const logsUrl = separation.logs_url || separation.logsUrl || ''
 
   const jumpToTime = (time) => {
     const nextTime = Math.max(time, 0)
@@ -146,6 +148,30 @@ function Workbench({
           </div>
         }
       />
+
+      {separation.status === 'failed' ? (
+        <div className="mb-5 rounded-[22px] border border-[var(--pink)] bg-[var(--pink-light)] px-5 py-4">
+          <div className="text-sm font-semibold uppercase tracking-[0.12em] text-[var(--pink)]">Separation failure</div>
+          <div className="mt-2 text-sm leading-6 text-[var(--text)]">
+            {errorDetail || 'Separation failed before the workbench could load the separated stems.'}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button className="ghost-button !px-4 !py-2" type="button" onClick={onBack}>
+              Back to model
+            </button>
+            {logsUrl ? (
+              <a
+                className="pill-button !px-4 !py-2 no-underline"
+                href={logsUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                View logs
+              </a>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-[26px] border border-[var(--gray-border)] bg-white p-4 shadow-[0_22px_44px_rgba(0,0,0,0.06)]">
         <div className="mb-4 flex flex-col gap-4 border-b border-[var(--gray-border)] pb-4 xl:flex-row xl:items-center xl:justify-between">

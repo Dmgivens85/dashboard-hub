@@ -10,13 +10,16 @@ async function request(path, options = {}) {
   const response = await fetch(buildUrl(path), options)
   if (!response.ok) {
     const message = await response.text()
+    let detail
 
     try {
       const parsed = JSON.parse(message)
-      throw new Error((parsed.detail ?? message) || `Request failed with status ${response.status}`)
+      detail = parsed.detail ?? parsed.message ?? message
     } catch {
-      throw new Error(message || `Request failed with status ${response.status}`)
+      detail = message
     }
+
+    throw new Error(detail || `Request failed with status ${response.status}`)
   }
 
   return response.json()

@@ -1,5 +1,5 @@
 import { STEM_TYPES } from '../lib/constants.js'
-import { formatDuration, formatFileSize, formatPercent } from '../lib/format.js'
+import { formatDuration, formatFileSize } from '../lib/format.js'
 import NamingPreview from './NamingPreview.jsx'
 import StepHeader from './StepHeader.jsx'
 
@@ -20,6 +20,9 @@ function sourceBadgeTone(sourceBadge) {
   if (sourceBadge === 'score') {
     return 'bg-[var(--pink)] text-white'
   }
+  if (sourceBadge === 'expected') {
+    return 'bg-[rgba(79,143,247,0.12)] text-[#356fd1]'
+  }
   if (sourceBadge === 'manual') {
     return 'bg-[rgba(232,149,10,0.14)] text-[var(--amber)]'
   }
@@ -32,9 +35,73 @@ function sourceBadgeTone(sourceBadge) {
   return 'bg-[var(--gray-light)] text-[var(--text-sub)]'
 }
 
-function FileDropZone({ accept, description, fileName, label, onSelect }) {
+function stemBasisText(stem) {
+  if (stem.source_badge === 'score') {
+    return 'Score mapped'
+  }
+  if (stem.source_badge === 'expected') {
+    return 'Expected Demucs output'
+  }
+  if (stem.source_badge === 'conflict') {
+    return 'Manual override pending'
+  }
+  if (stem.source_badge === 'manual') {
+    return 'Manual label'
+  }
+  if (stem.source_badge === 'detected') {
+    return 'Detected suggestion'
+  }
+  return 'Unspecified'
+}
+
+function raisedCheckGuidance(check) {
+  if (check.label === 'Bit depth') {
+    return {
+      explanation: `${check.label}: ${check.value} detected. Production standard is 24-bit. Stems will be delivered at ${check.value} resolution.`,
+      action: 'This is acceptable for testing but not for production delivery. Check the box below to acknowledge and continue.',
+    }
+  }
+  if (check.label === 'Sample rate') {
+    return {
+      explanation: `${check.label}: ${check.value} detected. Production standard is 44.1 kHz or higher.`,
+      action: 'Confirm the source provenance and acknowledge the warning before continuing.',
+    }
+  }
+  if (check.label === 'Clipping') {
+    return {
+      explanation: `${check.label}: clipping was detected in the uploaded source file.`,
+      action: 'Review whether the distortion is expected in the source and acknowledge the warning before continuing.',
+    }
+  }
+  if (check.label === 'DC offset') {
+    return {
+      explanation: `${check.label}: measurable DC offset was detected in the uploaded source.`,
+      action: 'Stop here and replace or repair the source file before proceeding.',
+    }
+  }
+  if (check.label === 'File format') {
+    return {
+      explanation: `${check.label}: ${check.value} detected.`,
+      action: 'Use WAV or FLAC for production ingest.',
+    }
+  }
+  return {
+    explanation: `${check.label}: ${check.note || check.value}.`,
+    action: check.status === 'fail' ? 'Resolve this condition before continuing.' : 'Review and acknowledge this condition before continuing.',
+  }
+}
+
+function FileDropZone({ accept, description, errorMessage, fileName, label, onSelect, progressState }) {
+  const showProgress = progressState === 'loading' || progressState === 'success'
+
   return (
-    <label className="block cursor-pointer rounded-[18px] border border-dashed border-[var(--pink-border)] bg-[linear-gradient(180deg,#fff,var(--pink-light))] px-4 py-5 transition hover:border-[var(--pink)] hover:shadow-[0_12px_24px_rgba(232,32,118,0.12)]">
+    <label
+      className={`block cursor-pointer rounded-[18px] border border-dashed px-4 py-5 transition hover:shadow-[0_12px_24px_rgba(232,32,118,0.12)] ${
+        errorMessage
+          ? 'border-[rgba(192,57,43,0.32)] bg-[rgba(192,57,43,0.05)] hover:border-[var(--red)]'
+          : 'border-[var(--pink-border)] bg-[linear-gradient(180deg,#fff,var(--pink-light))] hover:border-[var(--pink)]'
+      }`}
+    >
       <span className="mb-1 block text-sm font-semibold text-[var(--text)]">{label}</span>
       <span className="block text-sm text-[var(--text-sub)]">{description}</span>
       <span className="mt-4 flex items-center justify-between gap-3 text-xs text-[var(--text-sub)]">
@@ -43,6 +110,16 @@ function FileDropZone({ accept, description, fileName, label, onSelect }) {
           {fileName || 'Choose file'}
         </span>
       </span>
+      {showProgress ? (
+        <span className="mt-3 block h-[2px] overflow-hidden rounded-full bg-[rgba(232,32,118,0.12)]">
+          <span
+            className={`block h-full ${
+              progressState === 'loading' ? 'upload-progress-indeterminate bg-[var(--pink)]' : 'w-full bg-[var(--green)]'
+            }`}
+          />
+        </span>
+      ) : null}
+      {errorMessage ? <span className="mt-3 block text-xs font-semibold text-[var(--red)]">{errorMessage}</span> : null}
       <input
         className="sr-only"
         type="file"
@@ -66,6 +143,7 @@ function IngestScreen({
   draftNotice,
   error,
   isSubmitting,
+  ingestProgressState,
   namingPreview,
   onAddStem,
   onAudioSelected,
@@ -74,18 +152,22 @@ function IngestScreen({
   onProceed,
   onSaveDraft,
   onScoreSelected,
+  onSourceTypeSelected,
   onStemChange,
   onStemDelete,
   onWarningAcknowledged,
+  sourceTypeOptions,
   score,
   scoreFileName,
   sessionMeta,
   sourceFileName,
   sourceType,
   stems,
+  hasScore,
+  showSourceTypePrompt,
   warningsAcknowledged,
 }) {
-  const warningCount = checks.filter((check) => check.status === 'warn').length
+  const raisedChecks = checks.filter((check) => ['warn', 'fail'].includes(check.status))
 
   return (
     <div className="mx-auto max-w-[1600px]">
@@ -108,9 +190,11 @@ function IngestScreen({
           <FileDropZone
             accept=".wav,.flac,audio/wav,audio/flac"
             description="Lossless source only. WAV and FLAC are accepted."
+            errorMessage={error}
             fileName={sourceFileName}
             label="Source file"
             onSelect={onAudioSelected}
+            progressState={ingestProgressState}
           />
           <FileDropZone
             accept=".sib,.xml,.musicxml"
@@ -123,14 +207,16 @@ function IngestScreen({
           <section className="panel-shell">
             <div className="mb-4">
               <h3 className="text-lg font-semibold text-[var(--text)]">Session metadata</h3>
-              <p className="text-sm text-[var(--text-sub)]">These values drive naming preview and export metadata.</p>
+              <p className="text-sm text-[var(--text-sub)]">
+                These values drive naming preview and export metadata. Session name auto-generates from composer, title, and date until you override it.
+              </p>
             </div>
             <div className="space-y-3">
               {[
                 ['catalog_id', 'Catalog ID', 'TMPL-0001'],
                 ['composer', 'Composer', 'Everly Brothers'],
                 ['title', 'Title', 'All I Have To Do Is Dream'],
-                ['session_name', 'Session name', 'stemqa-everly'],
+                ['session_name', 'Session name', 'EverlyBrothers_AllIHaveToDo_20260525'],
               ].map(([field, label, placeholder]) => (
                 <label key={field} className="block">
                   <span className="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-sub)]">
@@ -227,13 +313,50 @@ function IngestScreen({
               <div>
                 <h3 className="text-lg font-semibold text-[var(--text)]">Stem configuration</h3>
                 <p className="text-sm text-[var(--text-sub)]">
-                  Score data takes priority. Manual edits are marked as conflicts until acknowledged.
+                  Score data takes priority. Without a score file, these rows label expected Demucs outputs only and do not detect instruments from audio.
                 </p>
               </div>
               <button className="ghost-button" type="button" onClick={onAddStem}>
                 Add stem
               </button>
             </div>
+
+            {showSourceTypePrompt ? (
+              <div className="mb-4 rounded-[20px] border border-[var(--pink-border)] bg-[var(--pink-light)] px-4 py-4">
+                <div className="text-sm font-semibold text-[var(--text)]">No score detected. What kind of source is this?</div>
+                <div className="mt-2 text-sm text-[var(--text-sub)]">
+                  Choose the closest source family so StemQA can label the expected Demucs outputs. This does not detect instruments from the audio.
+                </div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {sourceTypeOptions.map((option) => (
+                    <button
+                      key={option}
+                      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                        sourceType === option
+                          ? 'bg-[var(--pink)] text-white'
+                          : 'bg-white text-[var(--text)] ring-1 ring-[var(--pink-border)]'
+                      }`}
+                      type="button"
+                      onClick={() => onSourceTypeSelected(option)}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {!hasScore && stems.length > 0 ? (
+              <div className="mb-4 rounded-[18px] border border-[var(--gray-border)] bg-[var(--gray-light)] px-4 py-3 text-sm text-[var(--text-sub)]">
+                Expected Demucs outputs only. StemQA is not detecting instruments from the audio without a Sibelius or MusicXML file.
+              </div>
+            ) : null}
+
+            {!hasScore && sourceType === 'Orchestral/Classical' ? (
+              <div className="mb-4 rounded-[18px] border border-[rgba(232,149,10,0.28)] bg-[rgba(232,149,10,0.08)] px-4 py-3 text-sm text-[var(--text)]">
+                Without a score file, orchestral instruments will be grouped into the Other stem. Upload a Sibelius or MusicXML file to enable instrument-level QA.
+              </div>
+            ) : null}
 
             <div className="table-shell">
               <table className="w-full text-left text-sm">
@@ -242,7 +365,7 @@ function IngestScreen({
                     <th className="px-4 py-3">Color</th>
                     <th className="px-4 py-3">Instrument</th>
                     <th className="px-4 py-3">Source</th>
-                    <th className="px-4 py-3">Confidence</th>
+                    <th className="px-4 py-3">Label basis</th>
                     <th className="px-4 py-3">Stem type</th>
                     <th className="px-4 py-3">Action</th>
                   </tr>
@@ -285,17 +408,7 @@ function IngestScreen({
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="h-2.5 w-28 overflow-hidden rounded-full bg-[var(--gray-border)]">
-                            <div
-                              className="h-full rounded-full bg-[linear-gradient(90deg,var(--pink),#ff8bbd)]"
-                              style={{ width: `${Math.max(stem.detection_confidence * 100, 8)}%` }}
-                            />
-                          </div>
-                          <span className="text-xs font-semibold text-[var(--text-sub)]">
-                            {formatPercent(stem.detection_confidence, 0)}
-                          </span>
-                        </div>
+                        <span className="text-xs font-semibold text-[var(--text-sub)]">{stemBasisText(stem)}</span>
                       </td>
                       <td className="px-4 py-3">
                         <select
@@ -317,6 +430,15 @@ function IngestScreen({
                       </td>
                     </tr>
                   ))}
+                  {stems.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-6 text-[var(--text-sub)]" colSpan="6">
+                        {showSourceTypePrompt
+                          ? 'Choose a source type to load the expected Demucs output labels.'
+                          : 'Upload a source or add stems manually to populate this table.'}
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
@@ -331,7 +453,7 @@ function IngestScreen({
                 <p className="text-sm text-[var(--text-sub)]">Quick metadata and score state.</p>
               </div>
               <span className="rounded-full bg-[var(--gray-light)] px-3 py-1 text-xs font-semibold text-[var(--text-sub)]">
-                {sourceType}
+                {sourceType || 'Select source type'}
               </span>
             </div>
             <div className="mt-4 space-y-3 text-sm">
@@ -349,7 +471,27 @@ function IngestScreen({
               </div>
               <div className="rounded-2xl bg-[var(--gray-light)] px-4 py-3">
                 <div className="font-semibold text-[var(--text)]">Checks raised</div>
-                <div className="mt-1 text-[var(--text-sub)]">{warningCount} warnings requiring review.</div>
+                {raisedChecks.length > 0 ? (
+                  <details className="mt-2" open>
+                    <summary className="cursor-pointer text-sm font-semibold text-[var(--text)]">
+                      {raisedChecks.length} check{raisedChecks.length === 1 ? '' : 's'} requiring review
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                      {raisedChecks.map((check) => {
+                        const guidance = raisedCheckGuidance(check)
+                        return (
+                          <div key={check.label} className="rounded-2xl bg-white px-3 py-3">
+                            <div className="font-semibold text-[var(--text)]">{check.label}</div>
+                            <div className="mt-1 text-[var(--text-sub)]">{guidance.explanation}</div>
+                            <div className="mt-2 text-[var(--text)]">{guidance.action}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </details>
+                ) : (
+                  <div className="mt-1 text-[var(--text-sub)]">No warnings or rejects were raised during ingest.</div>
+                )}
               </div>
             </div>
 
@@ -370,7 +512,6 @@ function IngestScreen({
 
           <NamingPreview names={namingPreview} />
 
-          {error ? <div className="rounded-2xl border border-[rgba(192,57,43,0.3)] bg-[rgba(192,57,43,0.08)] px-4 py-3 text-sm text-[var(--red)]">{error}</div> : null}
           {draftNotice ? <div className="rounded-2xl bg-[var(--gray-light)] px-4 py-3 text-sm text-[var(--text-sub)]">{draftNotice}</div> : null}
 
           <div className="rounded-[22px] border border-[var(--gray-border)] bg-white px-4 py-4 shadow-[0_14px_28px_rgba(0,0,0,0.04)]">

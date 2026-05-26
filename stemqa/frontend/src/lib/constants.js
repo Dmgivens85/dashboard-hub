@@ -40,5 +40,9 @@ export const MODEL_OPTIONS = [
     available: false,
     disabled: true,
     disabledReason: 'Kim Vocal 2 is shown in the UI, but its backend model identifier has not been confirmed yet.',
+    specialized: true,
+    warningBadge: 'Vocal-forward sources only',
+    warningCopy:
+      'Optimized for lead vocal isolation from pop, R&B, and singer-songwriter material. Not recommended for orchestral, instrumental, or jazz sources.',
   },
 ]

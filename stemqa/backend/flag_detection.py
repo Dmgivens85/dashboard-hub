@@ -372,7 +372,7 @@ def _detect_rest_energy(
             flag_type = "HF-06" if _is_tonal(segment, sample_rate) else "Cat-3"
             description = (
                 f"Stem energy stayed at {rms_db:.1f} dBFS during a scored rest interval. "
-                "Tonally pitched rest bleed is marked HF-06."
+                "Tonally pitched rest spectral leakage is marked HF-06."
                 if flag_type == "HF-06"
                 else f"Stem energy stayed at {rms_db:.1f} dBFS during a scored rest interval."
             )
@@ -381,7 +381,7 @@ def _detect_rest_energy(
                 flag_type=flag_type,
                 timestamp=start_time,
                 description=description,
-                title="Rest energy bleed",
+                title="Rest energy spectral leakage",
                 stem_name=stem.name,
                 stem_path=stem.path,
                 duration=end_time - start_time,

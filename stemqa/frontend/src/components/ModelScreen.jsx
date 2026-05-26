@@ -9,9 +9,58 @@ function estimateRuntime(duration, modelLabel, overlap, shifts) {
   return Math.max(30, duration * selectedModel.runtimeFactor * overlapFactor * shiftFactor)
 }
 
-function ModelScreen({ duration, error, isSubmitting, model, notice, onBack, onModelChange, onRunSeparation, onStemToggle, stems }) {
+function stemStatusLabel(stem) {
+  if (stem.source_badge === 'score') {
+    return 'Score mapped'
+  }
+  if (stem.source_badge === 'expected') {
+    return 'Expected output'
+  }
+  if (stem.source_badge === 'conflict') {
+    return 'Override pending'
+  }
+  if (stem.source_badge === 'manual') {
+    return 'Manual label'
+  }
+  return 'Configured'
+}
+
+function recommendationCopy(sourceType) {
+  if (sourceType === 'Orchestral/Classical') {
+    return 'HTDemucs FT recommended for orchestral material — optimized for transient integrity and balanced artifact control.'
+  }
+  if (sourceType === 'Pop/Rock/Vocal') {
+    return 'Ensemble suggested for pop, rock, and vocal-forward material — useful for dense arrangements that benefit from averaged separation output.'
+  }
+  return ''
+}
+
+function recommendedBadge(sourceType, optionLabel) {
+  if (sourceType === 'Pop/Rock/Vocal') {
+    return optionLabel === 'Ensemble' ? 'Suggested' : ''
+  }
+  if (optionLabel === 'HTDemucs FT') {
+    return 'Recommended'
+  }
+  return ''
+}
+
+function ModelScreen({
+  duration,
+  error,
+  isSubmitting,
+  model,
+  notice,
+  onBack,
+  onModelChange,
+  onRunSeparation,
+  onStemToggle,
+  sourceType,
+  stems,
+}) {
   const estimatedRuntime = estimateRuntime(duration, model.selected, model.overlap, model.shifts)
   const selectedStemCount = stems.filter((stem) => model.selectedStemIds.includes(stem.id)).length
+  const recommendation = recommendationCopy(sourceType)
 
   return (
     <div className="mx-auto max-w-[1500px]">
@@ -27,6 +76,13 @@ function ModelScreen({ duration, error, isSubmitting, model, notice, onBack, onM
         }
       />
 
+      {recommendation ? (
+        <div className="mb-6 rounded-[20px] border border-[var(--pink-border)] bg-[var(--pink-light)] px-4 py-4 text-sm">
+          <div className="font-semibold text-[var(--pink)]">Model recommendation</div>
+          <div className="mt-1 text-[var(--text)]">{recommendation}</div>
+        </div>
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">
         <main className="space-y-6">
           <section className="panel-shell">
@@ -39,14 +95,17 @@ function ModelScreen({ duration, error, isSubmitting, model, notice, onBack, onM
             <div className="grid gap-4 md:grid-cols-2">
               {MODEL_OPTIONS.map((option) => {
                 const isSelected = model.selected === option.label
+                const badgeLabel = recommendedBadge(sourceType, option.label)
                 return (
                   <button
                     key={option.label}
                     className={`rounded-[20px] border px-5 py-5 text-left transition ${
                       isSelected
                         ? 'border-[var(--pink)] bg-[linear-gradient(180deg,var(--pink-light),#fff)] shadow-[0_18px_32px_rgba(232,32,118,0.16)]'
-                        : 'border-[var(--gray-border)] bg-white hover:border-[var(--pink-border)] hover:shadow-[0_12px_24px_rgba(0,0,0,0.04)]'
-                    } ${option.disabled ? 'cursor-not-allowed opacity-70' : ''}`}
+                        : option.specialized
+                          ? 'border-[rgba(155,155,155,0.38)] bg-[linear-gradient(180deg,#fafafa,#f2f2f2)] hover:border-[rgba(232,149,10,0.4)] hover:shadow-[0_12px_24px_rgba(0,0,0,0.04)]'
+                          : 'border-[var(--gray-border)] bg-white hover:border-[var(--pink-border)] hover:shadow-[0_12px_24px_rgba(0,0,0,0.04)]'
+                    } ${option.disabled ? 'cursor-not-allowed opacity-75' : ''} ${option.specialized ? 'saturate-[0.68]' : ''}`}
                     disabled={option.disabled}
                     type="button"
                     onClick={() => onModelChange('selected', option.label)}
@@ -55,13 +114,21 @@ function ModelScreen({ duration, error, isSubmitting, model, notice, onBack, onM
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-lg font-semibold text-[var(--text)]">{option.label}</span>
-                          {option.recommended ? (
+                          {badgeLabel ? (
                             <span className="rounded-full bg-[var(--pink)] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-white">
-                              Recommended
+                              {badgeLabel}
+                            </span>
+                          ) : null}
+                          {option.warningBadge ? (
+                            <span className="rounded-full bg-[rgba(232,149,10,0.14)] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--amber)]">
+                              {option.warningBadge}
                             </span>
                           ) : null}
                         </div>
                         <p className="mt-2 text-sm leading-6 text-[var(--text-sub)]">{option.detail}</p>
+                        {option.warningCopy ? (
+                          <p className="mt-2 text-xs leading-5 text-[var(--text-sub)]">{option.warningCopy}</p>
+                        ) : null}
                       </div>
                       <span
                         className={`mt-1 inline-flex h-4 w-4 rounded-full border ${
@@ -88,7 +155,7 @@ function ModelScreen({ duration, error, isSubmitting, model, notice, onBack, onM
             <div className="grid gap-5 lg:grid-cols-2">
               <div className="rounded-[20px] border border-[var(--gray-border)] bg-[var(--gray-light)] px-4 py-4">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="font-semibold text-[var(--text)]">Overlap</span>
+                  <span className="font-semibold text-[var(--text)]">Phase coherence on transient attacks</span>
                   <span className="rounded-full bg-white px-3 py-1 font-semibold text-[var(--pink)]">{model.overlap}</span>
                 </div>
                 <input
@@ -99,12 +166,14 @@ function ModelScreen({ duration, error, isSubmitting, model, notice, onBack, onM
                   value={model.overlap}
                   onChange={(event) => onModelChange('overlap', Number(event.target.value))}
                 />
-                <p className="mt-3 text-sm text-[var(--text-sub)]">Higher overlap increases transient integrity while raising processing time.</p>
+                <p className="mt-3 text-sm text-[var(--text-sub)]">
+                  Higher values preserve bow attacks, piano key strikes, and drum onsets. Increase for orchestral material. Decreases processing speed.
+                </p>
               </div>
 
               <div className="rounded-[20px] border border-[var(--gray-border)] bg-[var(--gray-light)] px-4 py-4">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="font-semibold text-[var(--text)]">Shifts</span>
+                  <span className="font-semibold text-[var(--text)]">Accuracy passes</span>
                   <span className="rounded-full bg-white px-3 py-1 font-semibold text-[var(--pink)]">{model.shifts}</span>
                 </div>
                 <div className="mt-4 flex gap-3">
@@ -123,7 +192,9 @@ function ModelScreen({ duration, error, isSubmitting, model, notice, onBack, onM
                     </button>
                   ))}
                 </div>
-                <p className="mt-3 text-sm text-[var(--text-sub)]">More shift passes can improve accuracy on difficult material at the cost of runtime.</p>
+                <p className="mt-3 text-sm text-[var(--text-sub)]">
+                  Each pass pitch-shifts the source slightly to improve separation on ambiguous frequency content. 2 is sufficient for most material. 4 for dense arrangements.
+                </p>
               </div>
 
               <div className="rounded-[20px] border border-[var(--gray-border)] bg-white px-4 py-4">
@@ -150,7 +221,7 @@ function ModelScreen({ duration, error, isSubmitting, model, notice, onBack, onM
                   </button>
                 </div>
                 <p className="mt-3 text-sm text-[var(--text-sub)]">
-                  UI is ready for the cascade flow. Source protection remains intact: pass two must still reference the original source, never a separated stem.
+                  Runs a broad split first, then a fine instrument split on the result. Source protection is enforced — pass two always reads the original file, never a separated stem.
                 </p>
               </div>
             </div>
@@ -180,7 +251,7 @@ function ModelScreen({ duration, error, isSubmitting, model, notice, onBack, onM
                       </div>
                     </div>
                     <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[var(--text-sub)]">
-                      {Math.round(stem.detection_confidence * 100)}%
+                      {stemStatusLabel(stem)}
                     </span>
                   </label>
                 )

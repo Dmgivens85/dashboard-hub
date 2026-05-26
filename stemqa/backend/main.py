@@ -23,7 +23,7 @@ from separation import conform_stem_outputs, separate
 app = FastAPI(title="StemQA API")
 
 BASE_DIR = Path(__file__).resolve().parent
-RUNTIME_DIR = BASE_DIR / "runtime"
+RUNTIME_DIR = Path(os.getenv("STEMQA_OUTPUT_DIR", BASE_DIR / "runtime")).expanduser().resolve()
 UPLOADS_DIR = RUNTIME_DIR / "uploads"
 JOBS_DIR = RUNTIME_DIR / "jobs"
 RESIDUALS_DIR = RUNTIME_DIR / "residuals"
@@ -53,6 +53,8 @@ STEM_COLORS = [
     "#7f8c8d",
 ]
 
+JOB_LOG_TAIL_LIMIT = 80
+
 
 def _allowed_origins() -> list[str]:
     configured = os.getenv("STEMQA_ALLOWED_ORIGINS", "")
@@ -74,6 +76,27 @@ def _live_separation_disabled() -> bool:
             "RENDER_INSTANCE_ID",
         )
     )
+
+
+def _render_logs_url() -> str | None:
+    explicit = os.getenv("STEMQA_RENDER_LOGS_URL", "").strip()
+    if explicit:
+        return explicit
+
+    service_id = os.getenv("RENDER_SERVICE_ID", "").strip()
+    if service_id:
+        return f"https://dashboard.render.com/web/{service_id}/logs"
+
+    return None
+
+
+def _append_job_log(job: dict[str, Any], message: str) -> None:
+    timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    entry = f"[{timestamp} UTC] {message}"
+    logs = job.setdefault("logs", [])
+    logs.append(entry)
+    if len(logs) > JOB_LOG_TAIL_LIMIT:
+        del logs[:-JOB_LOG_TAIL_LIMIT]
 
 
 app.add_middleware(
@@ -274,6 +297,7 @@ def _run_separation_job(job_id: str, request: SeparationRequest) -> None:
     try:
         job["status"] = "processing"
         job["progress"] = 0.15
+        _append_job_log(job, f"Starting separation with {request.model}.")
 
         raw_dir = JOBS_DIR / job_id / "raw"
         stems_dir = JOBS_DIR / job_id / "stems"
@@ -283,17 +307,21 @@ def _run_separation_job(job_id: str, request: SeparationRequest) -> None:
             output_dir=raw_dir,
             overlap=request.overlap,
             shifts=request.shifts,
+            log_callback=lambda line: _append_job_log(job, line),
         )
 
         job["progress"] = 0.7
+        _append_job_log(job, "Conforming stem lengths to the source file.")
         conformed_paths = conform_stem_outputs(request.file_path, raw_paths, stems_dir)
         serialized_stems = _serialize_stems(conformed_paths, request.stems)
         job["progress"] = 0.86
+        _append_job_log(job, "Running post-separation flag analysis.")
         detected_flags = analyze_flags(
             source_path=request.file_path,
             stem_entries=serialized_stems,
             score_path=request.score_path,
         )
+        _append_job_log(job, f"Separation complete with {len(serialized_stems)} stems and {len(detected_flags)} flags.")
 
         job.update(
             {
@@ -301,14 +329,18 @@ def _run_separation_job(job_id: str, request: SeparationRequest) -> None:
                 "progress": 1.0,
                 "stems": serialized_stems,
                 "flags": detected_flags,
+                "error": None,
+                "error_detail": None,
             }
         )
     except Exception as exc:  # noqa: BLE001
+        _append_job_log(job, f"Separation failed: {exc}")
         job.update(
             {
                 "status": "failed",
                 "progress": 1.0,
-                "error": str(exc),
+                "error": "Separation failed.",
+                "error_detail": str(exc),
                 "stems": [],
             }
         )
@@ -401,6 +433,10 @@ async def separate_audio(request: SeparationRequest, background_tasks: Backgroun
         "created_at": datetime.now(timezone.utc).isoformat(),
         "stems": [],
         "flags": [],
+        "error": None,
+        "error_detail": None,
+        "logs_url": _render_logs_url(),
+        "logs": [f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC] Job created and queued."],
     }
     background_tasks.add_task(_run_separation_job, job_id, request)
     return {"job_id": job_id, "status": "processing"}
@@ -419,6 +455,9 @@ async def get_job(job_id: str) -> dict[str, Any]:
         "stems": job.get("stems", []),
         "flags": job.get("flags", []),
         "error": job.get("error"),
+        "error_detail": job.get("error_detail"),
+        "logs_url": job.get("logs_url"),
+        "log_tail": job.get("logs", []),
     }
 
 

@@ -4,7 +4,7 @@ StemQA is an AI audio stem separation workbench with a FastAPI backend and a Vit
 
 ## Local backend run
 
-Use the shared project virtualenv at `stemqa/.venv` and place Demucs model weights on the external drive:
+Use the shared project virtualenv at `stemqa/.venv`, place Demucs model weights on the external drive, and store backend runtime artifacts there as well:
 
 ```bash
 cd /Users/denavongivens/dashboard-hub/stemqa/backend
@@ -13,6 +13,8 @@ export STEMQA_OUTPUT_DIR=/Volumes/Expansion/stemqa_output
 ../.venv/bin/pip install -r requirements.txt
 ../.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+With `STEMQA_OUTPUT_DIR` set, uploads, job outputs, null-test residuals, and exports are written under `/Volumes/Expansion/stemqa_output`.
 
 ## Local separation verification
 

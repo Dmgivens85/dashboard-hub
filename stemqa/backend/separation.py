@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 import numpy as np
 import soundfile as sf
@@ -90,7 +90,14 @@ def _segment_seconds() -> float | None:
     return segment
 
 
-def _run_demucs(source: Path, model_name: str, output_root: Path, overlap: int, shifts: int) -> list[Path]:
+def _run_demucs(
+    source: Path,
+    model_name: str,
+    output_root: Path,
+    overlap: int,
+    shifts: int,
+    log_callback: Callable[[str], None] | None = None,
+) -> list[Path]:
     segment_seconds = _segment_seconds()
     cmd = [
         sys.executable,
@@ -111,9 +118,27 @@ def _run_demucs(source: Path, model_name: str, output_root: Path, overlap: int, 
     if segment_seconds is not None:
         cmd.extend(["--segment", f"{segment_seconds:g}"])
     env = os.environ.copy()
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    if result.returncode != 0:
-        raise SeparationError(result.stderr.strip() or result.stdout.strip() or "Demucs separation failed.")
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=env,
+    )
+
+    output_lines: list[str] = []
+    assert process.stdout is not None
+    for line in process.stdout:
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        output_lines.append(cleaned)
+        if log_callback:
+            log_callback(cleaned)
+
+    return_code = process.wait()
+    if return_code != 0:
+        raise SeparationError("\n".join(output_lines[-20:]) or "Demucs separation failed.")
     return _collect_demucs_outputs(output_root, model_name, source)
 
 
@@ -198,13 +223,17 @@ def separate(
     output_dir: str | Path,
     overlap: int = 8,
     shifts: int = 2,
+    log_callback: Callable[[str], None] | None = None,
 ) -> list[str]:
     source = validate_source_input(source_path)
     output_root = Path(output_dir).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
 
     model_names, is_ensemble = resolve_model(model)
-    stem_sets = [_run_demucs(source, model_name, output_root, overlap, shifts) for model_name in model_names]
+    stem_sets = [
+        _run_demucs(source, model_name, output_root, overlap, shifts, log_callback=log_callback)
+        for model_name in model_names
+    ]
 
     if is_ensemble:
         return _average_stem_sets(stem_sets, output_root / "ensemble_avg")
