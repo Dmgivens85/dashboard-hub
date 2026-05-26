@@ -63,7 +63,17 @@ def _allowed_origins() -> list[str]:
 
 def _live_separation_disabled() -> bool:
     configured = os.getenv("STEMQA_DISABLE_SEPARATION", "")
-    return configured.strip().lower() in {"1", "true", "yes", "on"}
+    if configured.strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    return any(
+        os.getenv(marker)
+        for marker in (
+            "RENDER",
+            "RENDER_SERVICE_ID",
+            "RENDER_EXTERNAL_HOSTNAME",
+            "RENDER_INSTANCE_ID",
+        )
+    )
 
 
 app.add_middleware(
