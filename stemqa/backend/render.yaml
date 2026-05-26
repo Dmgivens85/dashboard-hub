@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     rootDir: stemqa/backend
-    buildCommand: TORCH_HOME=/opt/render/project/src/stemqa/backend/.torch pip install -r requirements.txt && TORCH_HOME=/opt/render/project/src/stemqa/backend/.torch python -m demucs --help && TORCH_HOME=/opt/render/project/src/stemqa/backend/.torch python -c "from demucs.pretrained import get_model; get_model('htdemucs_ft'); get_model('mdx_extra')"
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /openapi.json
     envVars:
@@ -12,7 +12,5 @@ services:
         value: 3.11.11
       - key: STEMQA_ALLOWED_ORIGINS
         value: https://dmgivens85.github.io,http://127.0.0.1:4173,http://localhost:4173
-      - key: TORCH_HOME
-        value: /opt/render/project/src/stemqa/backend/.torch
       - key: STEMQA_DISABLE_SEPARATION
         value: "1"
