@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+audio-separator
+librosa
+soundfile
+numpy
+music21
+scipy
