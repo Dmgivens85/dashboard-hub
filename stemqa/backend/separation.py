@@ -11,6 +11,7 @@ import soundfile as sf
 
 HTDEMUCS_FT = "htdemucs_ft"
 MDX_EXTRA = "mdx_extra"
+DEFAULT_SEGMENT_SECONDS = 10.0
 
 _MODEL_ALIASES = {
     "htdemucs ft": HTDEMUCS_FT,
@@ -77,7 +78,21 @@ def _collect_demucs_outputs(output_root: Path, model_name: str, source: Path) ->
     return stem_paths
 
 
+def _segment_seconds() -> float | None:
+    configured = os.getenv("STEMQA_DEMUCS_SEGMENT")
+    if configured is None or not configured.strip():
+        return DEFAULT_SEGMENT_SECONDS
+    try:
+        segment = float(configured)
+    except ValueError as exc:
+        raise SeparationError(f"Invalid STEMQA_DEMUCS_SEGMENT value: {configured}") from exc
+    if segment <= 0:
+        return None
+    return segment
+
+
 def _run_demucs(source: Path, model_name: str, output_root: Path, overlap: int, shifts: int) -> list[Path]:
+    segment_seconds = _segment_seconds()
     cmd = [
         sys.executable,
         "-m",
@@ -94,6 +109,8 @@ def _run_demucs(source: Path, model_name: str, output_root: Path, overlap: int, 
         model_name,
         str(source),
     ]
+    if segment_seconds is not None:
+        cmd.extend(["--segment", f"{segment_seconds:g}"])
     env = os.environ.copy()
     result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
