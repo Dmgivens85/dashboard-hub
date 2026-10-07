@@ -1,0 +1,3 @@
+beautifulsoup4>=4.12
+requests>=2.31          # optional — urllib used by default, requests as fallback
+lxml>=4.9               # faster BS4 parser (optional but recommended)
