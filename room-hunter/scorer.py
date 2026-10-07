@@ -101,9 +101,12 @@ def _household_score(listing: dict) -> int:
     if any(t in text for t in male_terms):
         score += 10
 
-    # Female-dominant penalty
+    # Female-dominant penalty — also catches "female roommate wanted / seeking female"
     female_terms = ["female only", "women only", "ladies only", "girls only",
-                    "all female", "women's apartment"]
+                    "all female", "women's apartment",
+                    "female roommate wanted", "seeking female roommate",
+                    "female preferred", "looking for female", "for female",
+                    "females only", "female housemate"]
     if any(t in text for t in female_terms):
         return 0
 
@@ -112,6 +115,12 @@ def _household_score(listing: dict) -> int:
                  "working professional", "late 30", "early 40"]
     if any(t in text for t in age_terms):
         score += 5
+
+    # If no LGBTQ signal at all, cap household score low —
+    # unknown compatibility on the most important axis
+    lgbtq_hit = any(t in text for t in lgbtq_terms)
+    if not lgbtq_hit and CRITERIA.get("lgbtq_required"):
+        score = min(score, 5)
 
     return min(score, 25)
 
